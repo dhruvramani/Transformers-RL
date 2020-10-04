@@ -17,16 +17,16 @@ class TransformerGaussianPolicy(torch.nn.Module):
             n_heads=n_attn_heads, d_head_inner=32, d_ff_inner=64)
         self.memory = None
 
+        self.head_sate_value = torch.nn.Linear(state_dim, 1)
         self.head_act_mean = torch.nn.Linear(state_dim, act_dim)
         log_std = -0.5 * np.ones(act_dim, dtype=np.float32)
         self.log_std = torch.nn.Parameter(torch.as_tensor(log_std))
 
-        self.head_sate_value = torch.nn.Linear(state_dim, 1)
-
+        self.tanh = torch.nn.Tanh()
         self.relu = torch.nn.ReLU()
 
     def _distribution(self, trans_state):
-        mean = self.head_act_mean(trans_state)
+        mean = self.tanh(self.head_act_mean(trans_state))
         std = torch.exp(self.log_std)
         return Normal(mean, std)
 

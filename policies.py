@@ -64,6 +64,7 @@ if __name__ == '__main__':
     states = torch.randn(20, 5, 8) # seq_size, batch_size, dim - better if dim % 2 == 0
     print("=> Testing Policy")
     policy = TransformerGaussianPolicy(state_dim=states.shape[-1], act_dim=4)
-    act = policy(states)
-    action = act[0].sample()
-    print(torch.isnan(action).any(), action.shape)
+    for i in range(10):
+        act = policy(states)
+        action = act[0].sample()
+        print(torch.isnan(action).any(), action.shape)

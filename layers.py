@@ -84,6 +84,7 @@ class MultiHeadAttentionXL(torch.nn.Module):
         self.dropo = torch.nn.Dropout(dropout)
 
     def _rel_shift(self, x):
+        # x shape: [curr x curr+prev x B x n_heads] = [20 x 40 x 5 x 3]
         zero_pad = torch.zeros(
             (x.size(0), 1, *x.size()[2:]), device=x.device, dtype=x.dtype
         )
@@ -138,7 +139,9 @@ class MultiHeadAttentionXL(torch.nn.Module):
             ),
         )
 
+        # p_tfmd: [seq + prev_seq x 1 x n_heads.d_head_inner] = [40 x 1 x 96]
         p_tfmd = self.linear_p(pos_embs)
+        # position_attn = [curr x curr+prev x B x n_heads] = [20 x 40 x 5 x 3]
         position_attn = torch.einsum(
             "ibhd,jhd->ijbh",
             (
@@ -148,13 +151,15 @@ class MultiHeadAttentionXL(torch.nn.Module):
         )
 
         position_attn = self._rel_shift(position_attn)
+        # attn = [curr x curr+prev x B x n_heads] = [20 x 40 x 5 x 3]
         attn = content_attn + position_attn
 
         if mask is not None and mask.any().item():
+            # fills float('inf') where mask is True.
             attn = attn.masked_fill(mask[..., None], -float("inf"))
-        attn = torch.softmax(
-            attn * self.scale, dim=1  # rescale to prevent values from exploding
-        )  # normalize across the value sequence dimension
+        # rescale to prevent values from exploding.
+        # normalize across the value sequence dimension.
+        attn = torch.softmax(attn * self.scale, dim=1)
         attn = self.dropa(attn)
 
         attn_weighted_values = (

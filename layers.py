@@ -66,21 +66,18 @@ class MultiHeadAttentionXL(torch.nn.Module):
         self.d_inner = d_inner
         self.n_heads = n_heads
 
-        # Linear transformation for keys & values for all heads at once for efficiency
-        self.linear_kv = torch.nn.Linear(
-            d_input, (d_inner * n_heads * 2), bias=False  # 2 for keys & values
-        )
-        # for queries (will not be concatenated with memorized states so separate)
+        # Linear transformation for keys & values for all heads at once for efficiency.
+        # 2 for keys & values.
+        self.linear_kv = torch.nn.Linear(d_input, (d_inner * n_heads * 2), bias=False)
+        # for queries (will not be concatenated with memorized states so separate).
         self.linear_q = torch.nn.Linear(d_input, d_inner * n_heads, bias=False)
 
-        # for positional embeddings
+        # for positional embeddings.
         self.linear_p = torch.nn.Linear(d_input, d_inner * n_heads, bias=False)
         self.scale = 1 / (d_inner ** 0.5)  # for scaled dot product attention
         self.dropa = torch.nn.Dropout(dropouta)
 
-        self.lout = torch.nn.Linear(
-            self.d_inner * self.n_heads, self.d_input, bias=False
-        )
+        self.lout = torch.nn.Linear(d_inner * n_heads, d_input, bias=False)
         self.dropo = torch.nn.Dropout(dropout)
 
     def _rel_shift(self, x):
@@ -116,6 +113,7 @@ class MultiHeadAttentionXL(torch.nn.Module):
         prev_seq = memory.shape[0]
         H, d = self.n_heads, self.d_inner
         # concat memory across sequence dimension
+        # input_with_memory = [seq + prev_seq x B x d_input] = [40 x 5 x 8]
         input_with_memory = torch.cat([memory, input_], dim=0)
 
         # k_tfmd, v_tfmd = [seq + prev_seq x B x n_heads.d_head_inner], [seq + prev_seq x B x n_heads.d_head_inner]
@@ -124,7 +122,7 @@ class MultiHeadAttentionXL(torch.nn.Module):
             2,
             dim=-1,
         )
-        # q_tfmd = [seq x B x n_heads.d_head_inner]
+        # q_tfmd = [seq x B x n_heads.d_head_inner] = [20 x 5 x 96]
         q_tfmd = self.linear_q(input_)
 
         _, bs, _ = q_tfmd.shape
@@ -155,13 +153,15 @@ class MultiHeadAttentionXL(torch.nn.Module):
         attn = content_attn + position_attn
 
         if mask is not None and mask.any().item():
-            # fills float('inf') where mask is True.
+            # fills float('-inf') where mask is True.
             attn = attn.masked_fill(mask[..., None], -float("inf"))
         # rescale to prevent values from exploding.
         # normalize across the value sequence dimension.
         attn = torch.softmax(attn * self.scale, dim=1)
+        # attn = [curr x curr+prev x B x n_heads] = [20 x 40 x 5 x 3]
         attn = self.dropa(attn)
 
+        # attn_weighted_values = [curr x B x n_heads.d_inner] = [20 x 5 x 96]
         attn_weighted_values = (
             torch.einsum(
                 "ijbh,jbhd->ibhd",
@@ -174,6 +174,7 @@ class MultiHeadAttentionXL(torch.nn.Module):
             .view(cur_seq, bs, H * d)
         )  # (cs, b, H * d)
 
+        # output = [curr x B x d_input] = [20 x 5 x 8]
         output = self.dropo(self.lout(attn_weighted_values))
         return output
 
@@ -288,8 +289,8 @@ class StableTransformerXL(torch.nn.Module):
     def forward(self, inputs, memory=None):
         """
         + Arguments
-            - inputs - torch.FloatTensor
-            - memory - Optional, list[torch.FloatTensor]
+            - inputs - torch.FloatTensor = [T x B x d_inner] = [20 x 5 x 8]
+            - memory - Optional, list[torch.FloatTensor] = [[T x B x d_inner] x 4]
         """
         if memory is None:
             memory = self.init_memory(inputs.device)
@@ -298,18 +299,20 @@ class StableTransformerXL(torch.nn.Module):
         cur_seq, bs = inputs.shape[:2]
         prev_seq = memory[0].size(0)
 
+        # dec_attn_mask = [curr x curr + prev x 1] = [20 x 40 x 1]
         dec_attn_mask = (
             torch.triu(
                 torch.ones((cur_seq, cur_seq + prev_seq)),
                 diagonal=1 + prev_seq,
             )
-            .byte()[..., None]
+            .bool()[..., None]
             .to(inputs.device)
         )
 
         pos_ips = torch.arange(cur_seq + prev_seq - 1, -1, -1.0, dtype=torch.float).to(
             inputs.device
         )
+        # pos_embs = [curr + prev x 1 x d_input] = [40 x 1 x 8]
         pos_embs = self.drop(self.pos_embs(pos_ips))
         if self.d_input % 2 != 0:
             pos_embs = pos_embs[:, :, :-1]
@@ -317,11 +320,18 @@ class StableTransformerXL(torch.nn.Module):
         hidden_states = [inputs]
         layer_out = inputs
         for mem, layer in zip(memory, self.layers):
+            # layer_out = [curr x B x d_inner] = [20 x 5 x 8]
             layer_out = layer(
-                layer_out, pos_embs, self.u, self.v, mask=dec_attn_mask, mems=mem
+                layer_out,
+                pos_embs,
+                self.u,
+                self.v,
+                mask=dec_attn_mask,
+                mems=mem,
             )
             hidden_states.append(layer_out)
 
-        #  Memory is treated as a const., don't propagate through it
-        new_memory = self.update_memory(memory, hidden_states)
-        return {"logits": layer_out, "memory": new_memory}
+        # Memory is treated as a const., don't propagate through it
+        # new_memory = [[T x B x d_inner] x 4]
+        memory = self.update_memory(memory, hidden_states)
+        return {"logits": layer_out, "memory": memory}

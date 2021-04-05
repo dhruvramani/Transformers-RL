@@ -290,7 +290,7 @@ class StableTransformerXL(torch.nn.Module):
         """
         + Arguments
             - inputs - torch.FloatTensor = [T x B x d_inner] = [20 x 5 x 8]
-            - memory - Optional, list[torch.FloatTensor] = [[T x B x d_inner] x 4]
+            - memory - Optional, list[torch.FloatTensor] = [[T x B x d_inner] x 5]
         """
         if memory is None:
             memory = self.init_memory(inputs.device)

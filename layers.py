@@ -255,8 +255,8 @@ class StableTransformerXL(torch.nn.Module):
         # u and v are global parameters: maybe changing these to per-head parameters might help performance?
         self.u, self.v = (
             # [n_heads x d_head_inner] = [3 x 32]
-            torch.nn.Parameter(torch.Tensor(self.n_heads, self.d_head_inner)),
-            torch.nn.Parameter(torch.Tensor(self.n_heads, self.d_head_inner)),
+            torch.nn.Parameter(torch.zeros(self.n_heads, self.d_head_inner)),
+            torch.nn.Parameter(torch.zeros(self.n_heads, self.d_head_inner)),
         )
 
     def init_memory(self, device=torch.device("cpu")):

@@ -225,6 +225,7 @@ class StableTransformerXL(torch.nn.Module):
         d_ff_inner,
         dropout=0.1,
         dropouta=0.0,
+        mem_len=100,
     ):
         super(StableTransformerXL, self).__init__()
 
@@ -238,6 +239,7 @@ class StableTransformerXL(torch.nn.Module):
 
         self.pos_embs = PositionalEmbedding(d_input)
         self.drop = torch.nn.Dropout(dropout)
+        self.mem_len = mem_len
         self.layers = torch.nn.ModuleList(
             [
                 StableTransformerEncoderLayerXL(
@@ -261,8 +263,7 @@ class StableTransformerXL(torch.nn.Module):
 
     def init_memory(self, device=torch.device("cpu")):
         return [
-            # torch.empty(0, dtype=torch.float).to(device)
-            torch.zeros(20, 5, 8, dtype=torch.float).to(device)
+            torch.empty(0, dtype=torch.float).to(device)
             for _ in range(self.n_layers + 1)
         ]
 
@@ -280,7 +281,7 @@ class StableTransformerXL(torch.nn.Module):
         with torch.no_grad():
             new_memory = []
             end_idx = mem_len + seq_len
-            beg_idx = max(0, end_idx - mem_len)
+            beg_idx = max(0, end_idx - self.mem_len)
             for m, h in zip(previous_memory, hidden_states):
                 cat = torch.cat([m, h], dim=0)
                 new_memory.append(cat[beg_idx:end_idx].detach())
